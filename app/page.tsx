@@ -752,6 +752,7 @@ const AdminDashboard = ({ state, navigate }: any) => (
 const AdminBooks = ({ state, setState, navigate, showToast }: any) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [editingBook, setEditingBook] = useState<BookItem | null>(null);
 
   const handleDelete = async (id: string) => {
     if(confirm('Yakin ingin menghapus buku ini?')) {
@@ -781,40 +782,51 @@ const AdminBooks = ({ state, setState, navigate, showToast }: any) => {
   if (showAddForm) {
     return <AdminLayout navigate={navigate}>
       <BookForm 
-        onCancel={() => setShowAddForm(false)} 
+        onCancel={() => { setShowAddForm(false); setEditingBook(null); }} 
         isProcessing={isProcessing}
-        onSave={async (newBook: BookItem) => {
+        initialData={editingBook}
+        onSave={async (bookData: BookItem, isEdit: boolean) => {
           setIsProcessing(true);
-          showToast('Sedang menyimpan ke Spreadsheet...', 'success');
+          showToast(isEdit ? 'Menyimpan perubahan...' : 'Sedang menyimpan ke Spreadsheet...', 'success');
           
           try {
             // Konversi format agar sesuai header spreadsheet
             const spreadSheetData = {
-              id_buku: newBook.id,
-              judul: newBook.judul,
-              penulis: newBook.penulis,
-              penerbit: newBook.penerbit,
-              tahun_terbit: newBook.tahun,
-              isbn: newBook.isbn,
-              jumlah_halaman: newBook.halaman,
-              kategori: newBook.kategori,
-              kelas_rekomendasi: newBook.kelas,
-              sinopsis: newBook.sinopsis,
-              link_buku: newBook.linkBuku,
-              link_sampul: newBook.linkSampul,
-              status: newBook.status
+              id_buku: bookData.id,
+              judul: bookData.judul,
+              penulis: bookData.penulis,
+              penerbit: bookData.penerbit,
+              tahun_terbit: bookData.tahun,
+              isbn: bookData.isbn,
+              jumlah_halaman: bookData.halaman,
+              kategori: bookData.kategori,
+              kelas_rekomendasi: bookData.kelas,
+              sinopsis: bookData.sinopsis,
+              link_buku: bookData.linkBuku,
+              link_sampul: bookData.linkSampul,
+              status: bookData.status
             };
+
+            const payload = isEdit 
+              ? { action: 'updateBook', id: bookData.id, data: spreadSheetData } 
+              : { action: 'addBook', data: spreadSheetData };
 
             const res = await fetch(APPS_SCRIPT_URL, {
               method: 'POST',
-              body: JSON.stringify({ action: 'addBook', data: spreadSheetData })
+              body: JSON.stringify(payload)
             });
             const json = await res.json();
             
             if(json.success) {
-              setState((s: AppState) => ({...s, books: [newBook, ...s.books]}));
+              setState((s: AppState) => ({
+                ...s, 
+                books: isEdit 
+                  ? s.books.map(b => b.id === bookData.id ? bookData : b) 
+                  : [bookData, ...s.books]
+              }));
               setShowAddForm(false);
-              showToast('Buku berhasil disimpan ke Google Sheets!', 'success');
+              setEditingBook(null);
+              showToast(isEdit ? 'Buku berhasil diperbarui!' : 'Buku berhasil disimpan ke Google Sheets!', 'success');
             } else {
               showToast('Gagal menyimpan buku', 'error');
             }
@@ -888,7 +900,7 @@ const AdminBooks = ({ state, setState, navigate, showToast }: any) => {
                       </span>
                     </td>
                     <td className="p-4 text-right space-x-2">
-                      <button className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit"><Edit size={16}/></button>
+                      <button onClick={() => { setEditingBook(b); setShowAddForm(true); }} disabled={isProcessing} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-50" title="Edit"><Edit size={16}/></button>
                       <button onClick={() => handleDelete(b.id)} disabled={isProcessing} className="p-2 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50" title="Hapus"><Trash2 size={16}/></button>
                     </td>
                   </tr>
@@ -902,28 +914,30 @@ const AdminBooks = ({ state, setState, navigate, showToast }: any) => {
   );
 };
 
-const BookForm = ({ onCancel, onSave, isProcessing }: any) => {
-  const [formData, setFormData] = useState<Partial<BookItem>>({
-    judul: '', penulis: '', penerbit: '', tahun: '', isbn: '', 
-    halaman: 0, kategori: 'Cerita Anak', kelas: 'Semua Kelas',
-    sinopsis: '', linkBuku: '', linkSampul: '', status: 'publik'
-  });
+const BookForm = ({ onCancel, onSave, isProcessing, initialData }: any) => {
+  const [formData, setFormData] = useState<Partial<BookItem>>(
+    initialData || {
+      judul: '', penulis: '', penerbit: '', tahun: '', isbn: '', 
+      halaman: 0, kategori: 'Cerita Anak', kelas: 'Semua Kelas',
+      sinopsis: '', linkBuku: '', linkSampul: '', status: 'publik'
+    }
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const newBook: BookItem = {
+    const bookToSave: BookItem = {
       ...formData as BookItem,
-      id: Math.random().toString(36).substr(2, 9),
+      id: initialData ? initialData.id : Math.random().toString(36).substr(2, 9),
       gdriveId: extractGDriveId(formData.linkBuku || ''),
-      jumlahDibaca: 0
+      jumlahDibaca: initialData ? initialData.jumlahDibaca : 0
     };
-    onSave(newBook);
+    onSave(bookToSave, !!initialData);
   };
 
   return (
     <div className="max-w-4xl bg-white rounded-2xl shadow-sm border border-slate-100 p-8">
       <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-100">
-        <h2 className="text-2xl font-black text-slate-800">Tambah Buku Baru</h2>
+        <h2 className="text-2xl font-black text-slate-800">{initialData ? 'Edit Data Buku' : 'Tambah Buku Baru'}</h2>
         <button onClick={onCancel} disabled={isProcessing} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
       </div>
 
